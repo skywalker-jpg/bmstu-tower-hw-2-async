@@ -79,7 +79,7 @@ func MultiHash(in chan interface{}, out chan interface{}) {
 
 func CombineResults(in chan interface{}, out chan interface{}) {
 	var results []int
-	var combined []string
+	combined := make([]string, len(results))
 
 	for val := range in {
 		data := fmt.Sprintf("%v", val)
@@ -91,9 +91,9 @@ func CombineResults(in chan interface{}, out chan interface{}) {
 		return results[i] < results[j]
 	})
 
-	for i, _ := range results {
-		combined[i] = strconv.Itoa(results[i])
+	for val := range in {
+		combined = append(combined, fmt.Sprintf("%v", val))
 	}
 
-	out <- strings.Join(combined[:], "_")
+	out <- strings.Join(combined, "_")
 }
