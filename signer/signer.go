@@ -92,3 +92,5 @@ func CombineResults(in chan interface{}, out chan interface{}) {
 
 	out <- strings.Join(combined[:], "_")
 }
+
+//почему не запускается?
