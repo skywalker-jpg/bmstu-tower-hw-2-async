@@ -12,15 +12,20 @@ func ExecutePipeline(jobs ...job) {
 
 	in := make(chan interface{})
 	out := make(chan interface{})
+	wg := sync.WaitGroup{}
 
 	for _, j := range jobs {
-		go j(in, out)
+		wg.Add(1)
+		go func(job job, in, out chan interface{}) {
+			defer wg.Done()
+			job(in, out)
+			close(out)
+		}(j, in, out)
 		in = out
 		out = make(chan interface{})
 	}
 
-	close(in)
-
+	wg.Wait()
 }
 
 func SingleHash(in chan interface{}, out chan interface{}) {
@@ -92,5 +97,3 @@ func CombineResults(in chan interface{}, out chan interface{}) {
 
 	out <- strings.Join(combined[:], "_")
 }
-
-//почему не запускается?
