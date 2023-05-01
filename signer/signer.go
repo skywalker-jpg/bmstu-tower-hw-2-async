@@ -26,6 +26,7 @@ func ExecutePipeline(jobs ...job) {
 	}
 
 	wg.Wait()
+
 }
 
 func SingleHash(in chan interface{}, out chan interface{}) {
@@ -38,62 +39,58 @@ func SingleHash(in chan interface{}, out chan interface{}) {
 		Md5 := DataSignerMd5(data)
 		mu.Unlock()
 
-		Crc32Md5 := make(chan interface{})
+		Crc32Md5 := make(chan string)
+		Crc32Data := make(chan string)
 
-		go func() {
-			Crc32Md5 <- DataSignerCrc32(Md5)
-		}()
+		go func(crc32Chan1 chan<- string, data string) {
+			crc32 := DataSignerCrc32(data)
+			crc32Chan1 <- crc32
+		}(Crc32Data, data)
 
-		Crc32Data := make(chan interface{})
+		go func(crc32Chan2 chan<- string, md5Hash string) {
+			crc32 := DataSignerCrc32(md5Hash)
+			crc32Chan2 <- crc32
+		}(Crc32Md5, Md5)
 
-		go func() {
-			Crc32Data <- DataSignerCrc32(data)
-		}()
-
-		out <- fmt.Sprintf("%s~%s", <-Crc32Data, <-Crc32Md5)
+		out <- fmt.Sprintf("%v~%v", <-Crc32Data, <-Crc32Md5)
 	}
 }
 
 func MultiHash(in chan interface{}, out chan interface{}) {
-	wg := sync.WaitGroup{}
-	var hashes [6]string
-
 	for val := range in {
-		data := fmt.Sprintf("%s", val)
+		data := fmt.Sprintf("%v", val)
+		var wg sync.WaitGroup
+		hashes := make([]string, 6)
+		mutexes := make([]sync.Mutex, 6)
 
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 6; i++ {
 			wg.Add(1)
 
-			go func() {
+			go func(i int, data string) {
 				defer wg.Done()
-				hashes[i] = DataSignerCrc32(strconv.Itoa(i) + data)
-			}()
-
+				mutexes[i].Lock()
+				hash := DataSignerCrc32(strconv.Itoa(i) + data)
+				hashes[i] = hash
+				mutexes[i].Unlock()
+			}(i, data)
 		}
+
+		wg.Wait()
+		out <- strings.Join(hashes, "")
 	}
-
-	wg.Wait()
-	out <- strings.Join(hashes[:], "")
-
 }
 
 func CombineResults(in chan interface{}, out chan interface{}) {
-	var results []int
-	combined := make([]string, len(results))
-
+	var results []string
+	mu := sync.Mutex{}
 	for val := range in {
+		mu.Lock()
 		data := fmt.Sprintf("%v", val)
-		num, _ := strconv.Atoi(data)
-		results = append(results, num)
+		results = append(results, data)
+		mu.Unlock()
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i] < results[j]
-	})
+	sort.Strings(results)
 
-	for val := range in {
-		combined = append(combined, fmt.Sprintf("%v", val))
-	}
-
-	out <- strings.Join(combined, "_")
+	out <- strings.Join(results, "_")
 }
