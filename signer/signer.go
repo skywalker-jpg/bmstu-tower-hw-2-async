@@ -30,64 +30,77 @@ func ExecutePipeline(jobs ...job) {
 }
 
 func SingleHash(in chan interface{}, out chan interface{}) {
-	mu := &sync.Mutex{}
-
+	wg := &sync.WaitGroup{}
+	mu := sync.Mutex{}
 	for val := range in {
-		data := fmt.Sprintf("%s", val)
+		data := fmt.Sprintf("%v", val)
 
 		mu.Lock()
-		Md5 := DataSignerMd5(data)
+		m5Data := DataSignerMd5(data)
 		mu.Unlock()
 
-		Crc32Md5 := make(chan string)
-		Crc32Data := make(chan string)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			crc32Chan := make(chan string)
+			crc32M5DataChan := make(chan string)
 
-		go func(crc32Chan1 chan<- string, data string) {
-			crc32 := DataSignerCrc32(data)
-			crc32Chan1 <- crc32
-		}(Crc32Data, data)
+			go func() {
+				crc32Chan <- DataSignerCrc32(data)
+			}()
 
-		go func(crc32Chan2 chan<- string, md5Hash string) {
-			crc32 := DataSignerCrc32(md5Hash)
-			crc32Chan2 <- crc32
-		}(Crc32Md5, Md5)
+			go func() {
+				crc32M5DataChan <- DataSignerCrc32(m5Data)
+			}()
 
-		out <- fmt.Sprintf("%v~%v", <-Crc32Data, <-Crc32Md5)
+			crc32Data := <-crc32Chan
+			crc32Md5Data := <-crc32M5DataChan
+			out <- crc32Data + "~" + crc32Md5Data
+		}()
 	}
+	wg.Wait()
 }
 
 func MultiHash(in chan interface{}, out chan interface{}) {
+	wg := sync.WaitGroup{}
+
 	for val := range in {
-		data := fmt.Sprintf("%v", val)
-		var wg sync.WaitGroup
-		hashes := make([]string, 6)
-		mutexes := make([]sync.Mutex, 6)
+		wg.Add(1)
 
-		for i := 0; i < 6; i++ {
-			wg.Add(1)
+		val := val
+		go func() {
+			defer wg.Done()
+			newWg := &sync.WaitGroup{}
+			mutexes := make([]sync.Mutex, 6)
+			hashes := make([]string, 6)
+			mu := &sync.Mutex{}
+			for i := 0; i < 6; i++ {
+				newWg.Add(1)
+				data := strconv.Itoa(i) + val.(string)
 
-			go func(i int, data string) {
-				defer wg.Done()
-				mutexes[i].Lock()
-				hash := DataSignerCrc32(strconv.Itoa(i) + data)
-				hashes[i] = hash
-				mutexes[i].Unlock()
-			}(i, data)
-		}
+				go func(slc []string, ind int, data string, newWg *sync.WaitGroup, mu *sync.Mutex) {
+					defer newWg.Done()
+					data = DataSignerCrc32(data)
+					mutexes[ind].Lock()
+					hashes[ind] = data
+					mutexes[ind].Unlock()
+				}(hashes, i, data, newWg, mu)
 
-		wg.Wait()
-		out <- strings.Join(hashes, "")
+			}
+
+			newWg.Wait()
+			out <- strings.Join(hashes, "")
+		}()
 	}
+
+	wg.Wait()
 }
 
 func CombineResults(in chan interface{}, out chan interface{}) {
 	var results []string
-	mu := sync.Mutex{}
 	for val := range in {
-		mu.Lock()
 		data := fmt.Sprintf("%v", val)
 		results = append(results, data)
-		mu.Unlock()
 	}
 
 	sort.Strings(results)
