@@ -73,27 +73,25 @@ func MultiHash(in chan interface{}, out chan interface{}) {
 			newWg := &sync.WaitGroup{}
 			mutexes := make([]sync.Mutex, 6)
 			hashes := make([]string, 6)
-			mu := &sync.Mutex{}
 			for i := 0; i < 6; i++ {
 				newWg.Add(1)
 				data := strconv.Itoa(i) + val.(string)
-
-				go func(slc []string, ind int, data string, newWg *sync.WaitGroup, mu *sync.Mutex) {
-					defer newWg.Done()
-					data = DataSignerCrc32(data)
-					mutexes[ind].Lock()
-					hashes[ind] = data
-					mutexes[ind].Unlock()
-				}(hashes, i, data, newWg, mu)
-
+				go MultiHashGoroutine(hashes, mutexes, i, data, newWg)
 			}
-
 			newWg.Wait()
 			out <- strings.Join(hashes, "")
 		}()
 	}
 
 	wg.Wait()
+}
+
+func MultiHashGoroutine(hashes []string, mutexes []sync.Mutex, ind int, data string, newWg *sync.WaitGroup) {
+	defer newWg.Done()
+	data = DataSignerCrc32(data)
+	mutexes[ind].Lock()
+	hashes[ind] = data
+	mutexes[ind].Unlock()
 }
 
 func CombineResults(in chan interface{}, out chan interface{}) {
